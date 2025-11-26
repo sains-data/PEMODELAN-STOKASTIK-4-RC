@@ -1,0 +1,167 @@
+---
+title: "antrian spbu"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-11-19"
+---
+
+
+```{r}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+options(scipen = 999)
+```
+
+
+```{r}
+df <- read_csv("Dataset SPBU.csv", show_col_types = FALSE)
+df <- df %>%
+  rename(
+    Interarrival_Time = `Inter-Arrival Time (detik)`,
+    Service_Time      = `Service Time (detik)`
+  ) %>%
+  filter(!is.na(Interarrival_Time), !is.na(Service_Time))
+
+```
+
+
+```{r}
+T_antar    <- mean(df$Interarrival_Time)
+T_layanan  <- mean(df$Service_Time)
+
+lambda <- 1 / T_antar     # laju kedatangan
+mu     <- 1 / T_layanan   # laju pelayanan
+rho    <- lambda / mu      # utilisasi
+```
+
+
+```{r}
+mm1_results <- function(lambda, mu) {
+  rho <- lambda / mu
+  
+  if (rho >= 1) {
+    return(data.frame(
+      Pesan = "Sistem TIDAK stabil (rho >= 1). Metrik tidak terhingga."
+    ))
+  }
+  
+  P0 <- 1 - rho
+  Lq <- (lambda^2) / (mu * (mu - lambda))
+  Wq <- Lq / lambda
+  L  <- lambda / (mu - lambda)
+  W  <- L / lambda
+  
+  data.frame(
+    Metrik = c(
+      "Lambda (motor/jam)",
+      "Mu (motor/jam)",
+      "Utilisasi (rho)",
+      "Prob. Sistem Kosong (P0)",
+      "Panjang Antrian (Lq)",
+      "Waktu Tunggu Antrian (Wq - detik)",
+      "Waktu Total Sistem (W - detik)",
+      "Waktu Tunggu (Wq - menit)",
+      "Waktu Total (W - menit)"
+    ),
+    Nilai = c(
+      lambda * 3600,
+      mu * 3600,
+      rho,
+      P0,
+      Lq,
+      Wq,
+      W,
+      Wq / 60,
+      W / 60
+    )
+  )
+}
+
+```
+
+
+```{r}
+hasil <- mm1_results(lambda, mu)
+print(hasil)
+```
+
+```{r}
+# 1. Histogram Interarrival Time
+ggplot(df, aes(x = Interarrival_Time)) +
+  geom_histogram(bins = 30, fill = "#1F77B4", color = "white") +
+  labs(
+    title = "Distribusi Interarrival Time (detik)",
+    x = "Interarrival Time (detik)",
+    y = "Frekuensi"
+  ) +
+  theme_minimal()
+
+# 2. Histogram Service Time
+ggplot(df, aes(x = Service_Time)) +
+  geom_histogram(bins = 30, fill = "#D62728", color = "white") +
+  labs(
+    title = "Distribusi Service Time (detik)",
+    x = "Service Time (detik)",
+    y = "Frekuensi"
+  ) +
+  theme_minimal()
+
+# 3. Scatter Plot
+ggplot(df, aes(x = Interarrival_Time, y = Service_Time)) +
+  geom_point(color = "#9467BD", size = 2, alpha = 0.7) +
+  labs(
+    title = "Interarrival vs Service Time",
+    x = "Interarrival Time (detik)",
+    y = "Service Time (detik)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# --- 1. Ambil nilai rho & Lq dari mm1_results() ------------------------------
+rho_actual <- hasil$Nilai[hasil$Metrik == "Utilisasi (rho)"]
+Lq_actual  <- hasil$Nilai[hasil$Metrik == "Panjang Antrian (Lq)"]
+
+# --- 2. Hitung rho per baris (untuk menentukan range aktual) -----------------
+df <- df %>%
+  mutate(rho_i = Service_Time / Interarrival_Time)
+
+rho_min <- min(df$rho_i, na.rm = TRUE)
+rho_max <- max(df$rho_i, na.rm = TRUE)
+
+# --- 3. Buat kurva teori M/M/1 dalam range aktual ----------------------------
+rho_seq <- seq(rho_min, rho_max, length.out = 500)
+Lq_seq  <- (rho_seq^2) / (1 - rho_seq)
+
+df_curve <- data.frame(
+  rho = rho_seq,
+  Lq  = Lq_seq
+)
+
+# --- 4. Data titik aktual -----------------------------------------------------
+df_point <- data.frame(
+  rho = rho_actual,
+  Lq  = Lq_actual
+)
+
+# --- 5. Plot ------------------------------------------------------------------
+ggplot() +
+  geom_line(data = df_curve, aes(x = rho, y = Lq),
+            color = "blue", linewidth = 1.3) +
+  geom_point(data = df_point, aes(x = rho, y = Lq),
+             color = "red", size = 4) +
+  labs(
+    title = "Kurva M/M/1 Berdasarkan Rentang Rho Aktual + Titik Aktual",
+    x = "Utilisasi (rho)",
+    y = "Panjang Antrian (Lq)"
+  ) +
+  theme_minimal()
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
